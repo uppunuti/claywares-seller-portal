@@ -8,7 +8,7 @@ import SellerApprovalPending from "../pages/auth/SellerApprovalPending";
 import Dashboard from "../pages/dashboard/Dashboard";
 
 
-// import Products from "../pages/products/Products";
+import Products from "../pages/products/Products";
 import AddProduct from "../pages/products/AddProduct";
 // import EditProduct from "../pages/products/EditProduct";
 
@@ -35,7 +35,7 @@ export default function AppRoutes() {
           element={<SellerApprovalPending />}
         />
 
-                {/* <Route path="/products" element={<Products />} /> */}
+                <Route path="/products" element={<Products />} />
                 
 
                 <Route
