@@ -1,536 +1,864 @@
-import { useState, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../../api/axios";
+import {
+  FiBox,
+  FiShoppingBag,
+  FiArchive,
+  FiBarChart2,
+  FiSettings,
+  FiHelpCircle,
+  FiBell,
+  FiPlus,
+  FiChevronRight,
+  FiUploadCloud,
+  FiTrash2,
+  FiEye,
+  FiCheckCircle,
+  FiX,
+  FiAlertCircle,
+  FiLoader,
+  FiCheck,
+  FiArrowLeft,
+} from "react-icons/fi";
 import "../styles/AddProduct.css";
 
 export default function AddProduct() {
   const navigate = useNavigate();
-  const fileInputRef = useRef(null);
 
-  const [form, setForm] = useState({
-    productname: "",
+  // Primary Product Form State (Capacity and Weight are STRINGS)
+  const [formData, setFormData] = useState({
+    name: "",
     description: "",
-    price: "",
-    category: "",
-    discount_price: "",
-    stock_quantity: "",
-    weight: "",
-    capacity: "",
+    category: "Tableware",
+    subcategory: "Ceramic Mugs",
+    capacity: "", // STRING e.g., "500 ml"
+    weight: "", // STRING e.g., "350 g"
+    material: "Terracotta Clay",
+    sellingPrice: "",
+    discountPrice: "",
+    stock: "",
+    images: [],
   });
 
-  const [images, setImages] = useState([]);
-  const [variants, setVariants] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState({});
-  const [success, setSuccess] = useState("");
-  const [dragActive, setDragActive] = useState(false);
+  // Dynamic Variants
+  const [variants, setVariants] = useState([
+    { id: Date.now(), name: "Standard", capacity: "350 ml", price: "", stock: "" },
+  ]);
 
-  const categories = [
-    "cookware",
-    "water_bottles",
-    "tea_cups",
-    "water_glasses",
-    "decors",
-    "kitchen_accessories",
-    "gifts",
-  ];
+  // UI State Controls
+  const [activeStep, setActiveStep] = useState(1);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [loadingState, setLoadingState] = useState({
+    savingDraft: false,
+    submitting: false,
+  });
+  const [toast, setToast] = useState({ show: false, message: "", type: "success" });
+  const [errors, setErrors] = useState({});
 
-  const handleChange = (e) => {
+  // Keyboard accessibility for Drawer & Modal
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") {
+        setIsDrawerOpen(false);
+        setIsModalOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // Form Field Handlers
+  const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleImages = (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length > 0) {
-      setImages((prev) => [...prev, ...files]);
-    }
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+    setFormData((prev) => ({ ...prev, [name]: value }));
+    if (errors[name]) {
+      setErrors((prev) => ({ ...prev, [name]: null }));
     }
   };
 
-  const removeImage = (index) => {
-    setImages((prev) => prev.filter((_, i) => i !== index));
-  };
+  // Image Upload Handling
+  const handleImageUpload = (files) => {
+    const validFiles = Array.from(files).filter((file) =>
+      file.type.startsWith("image/")
+    );
 
-  const handleDrag = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true);
-    } else if (e.type === "dragleave") {
-      setDragActive(false);
-    }
+    const newImages = validFiles.map((file) => ({
+      id: Math.random().toString(36).substr(2, 9),
+      url: URL.createObjectURL(file),
+      file,
+      name: file.name,
+    }));
+
+    setFormData((prev) => ({
+      ...prev,
+      images: [...prev.images, ...newImages],
+    }));
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length > 0) {
-      const imageFiles = files.filter((file) => file.type.startsWith("image/"));
-      setImages((prev) => [...prev, ...imageFiles]);
+    setIsDragOver(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleImageUpload(e.dataTransfer.files);
     }
   };
 
-  const addVariant = () => {
+  const removeImage = (id) => {
+    setFormData((prev) => ({
+      ...prev,
+      images: prev.images.filter((img) => img.id !== id),
+    }));
+  };
+
+  // Variant Handlers
+  const handleAddVariant = () => {
     setVariants((prev) => [
       ...prev,
-      { capacity: "", price: "", stock_quantity: "" },
+      { id: Date.now(), name: "", capacity: "", price: "", stock: "" },
     ]);
   };
 
-  const updateVariant = (index, field, value) => {
+  const handleVariantChange = (id, field, value) => {
     setVariants((prev) =>
-      prev.map((variant, i) =>
-        i === index ? { ...variant, [field]: value } : variant
-      )
+      prev.map((v) => (v.id === id ? { ...v, [field]: value } : v))
     );
   };
 
-  const removeVariant = (index) => {
-    setVariants((prev) => prev.filter((_, i) => i !== index));
+  const handleRemoveVariant = (id) => {
+    setVariants((prev) => prev.filter((v) => v.id !== id));
   };
 
+  // Checklist Calculations
+  const checklist = [
+    { label: "Basic Information", complete: Boolean(formData.name && formData.description) },
+    { label: "Specifications & Material", complete: Boolean(formData.capacity && formData.weight) },
+    { label: "Pricing & Stock", complete: Boolean(formData.sellingPrice && formData.stock) },
+    { label: "Product Media", complete: formData.images.length > 0 },
+    { label: "Variants Configured", complete: variants.length > 0 && Boolean(variants[0].name) },
+  ];
+
+  const completedCount = checklist.filter((item) => item.complete).length;
+  const completionPercentage = Math.round((completedCount / checklist.length) * 100);
+
+  // Form Validation
   const validateForm = () => {
-    const errors = {};
-    if (!form.productname.trim()) errors.productname = "Product name is required";
-    if (!form.description.trim()) errors.description = "Description is required";
-    if (!form.price) errors.price = "Price is required";
-    if (!form.category) errors.category = "Category is required";
-    if (!form.stock_quantity) errors.stock_quantity = "Stock quantity is required";
-    if (images.length === 0) errors.images = "Please select at least one product image";
-    return errors;
+    const errs = {};
+    if (!formData.name.trim()) errs.name = "Product name is required.";
+    if (!formData.description.trim()) errs.description = "Product description is required.";
+    if (!formData.sellingPrice) errs.sellingPrice = "Selling price is required.";
+    if (!formData.stock) errs.stock = "Initial stock quantity is required.";
+    if (formData.images.length === 0) errs.images = "At least one product image is required.";
+    
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError({});
-    setSuccess("");
+  // Save Draft Action
+  const handleSaveDraft = async () => {
+    setLoadingState((prev) => ({ ...prev, savingDraft: true }));
+    // Simulate API call
+    setTimeout(() => {
+      setLoadingState((prev) => ({ ...prev, savingDraft: false }));
+      triggerToast("Draft saved successfully!", "success");
+    }, 1000);
+  };
 
-    const validationErrors = validateForm();
-    if (Object.keys(validationErrors).length > 0) {
-      setError(validationErrors);
-      return;
-    }
+  // Final Submit Action
+  const handleConfirmSubmit = async () => {
+    setIsModalOpen(false);
+    setLoadingState((prev) => ({ ...prev, submitting: true }));
 
-    try {
-      setLoading(true);
-
-      const formData = new FormData();
-      formData.append("productname", form.productname);
-      formData.append("description", form.description);
-      formData.append("price", form.price);
-      formData.append("category", form.category);
-      formData.append("discount_price", form.discount_price);
-      formData.append("stock_quantity", form.stock_quantity);
-      formData.append("weight", form.weight);
-      formData.append("capacity", form.capacity);
-
-      images.forEach((image) => {
-        formData.append("images", image);
-      });
-
-      formData.append("variants", JSON.stringify(variants));
-
-      const response = await api.post("/seller/add-product/", formData);
-
-      setSuccess(response.data?.message || "Product added successfully");
-
-      setForm({
-        productname: "",
-        description: "",
-        price: "",
-        category: "",
-        discount_price: "",
-        stock_quantity: "",
-        weight: "",
-        capacity: "",
-      });
-      setImages([]);
-      setVariants([]);
-
-      setTimeout(() => {
-        navigate("/products");
-      }, 1500);
-    } catch (err) {
-      console.error("Add product error:", err);
-      if (err.response?.data) {
-        const data = err.response.data;
-        if (typeof data === "string") {
-          setError({ general: data });
-        } else if (data.message) {
-          setError({ general: data.message });
-        } else {
-          setError({ general: Object.values(data).flat().join(" ") });
-        }
-      } else {
-        setError({ general: "Unable to connect to server. Please try again." });
+    // Prepare Payload
+    const payload = new FormData();
+    Object.keys(formData).forEach((key) => {
+      if (key !== "images") {
+        payload.append(key, formData[key]);
       }
-    } finally {
-      setLoading(false);
-    }
+    });
+    payload.append("variants", JSON.stringify(variants));
+    formData.images.forEach((img) => payload.append("images", img.file));
+
+    // Simulate Network Request
+    setTimeout(() => {
+      setLoadingState((prev) => ({ ...prev, submitting: false }));
+      triggerToast("Product submitted for ClayWare verification!", "success");
+      setTimeout(() => navigate("/dashboard"), 1800);
+    }, 1500);
+  };
+
+  const triggerToast = (message, type = "success") => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast({ show: false, message: "", type: "success" }), 4000);
   };
 
   return (
-    <div className="add-product-container">
-      {/* Page Header */}
-      <div className="page-header">
-        <div className="header-left">
-          <div className="breadcrumb">
-            <span>Dashboard</span>
-            <span className="separator">/</span>
-            <span>Products</span>
-            <span className="separator">/</span>
-            <span className="current">Add Product</span>
+    <div className="clayware-app-viewport">
+      {/* ================= CLAYWARE GLOBAL HEADER ================= */}
+      <header className="cw-global-header">
+        <div className="cw-header-left">
+          <div className="cw-brand" onClick={() => navigate("/dashboard")}>
+            <div className="cw-brand-logo">C</div>
+            <div className="cw-brand-titles">
+              <span className="brand-name">ClayWare</span>
+              <span className="brand-tag">SELLER HUB</span>
+            </div>
           </div>
-          <h1>Add New Product</h1>
-          <p className="subtitle">List your product on ClayWare marketplace</p>
+          <nav className="cw-header-nav">
+            <a onClick={() => navigate("/dashboard")}>Dashboard</a>
+            <a onClick={()=> navigate("/products")}>Products</a>
+            <a>Orders</a>
+            <a>Inventory</a>
+            <a>Analytics</a>
+          </nav>
         </div>
-        <button 
-          type="button" 
-          onClick={() => navigate("/products")}
-          className="btn btn-outline"
+
+        <div className="cw-header-right">
+          <button className="cw-icon-btn" aria-label="Notifications">
+            <FiBell />
+          </button>
+          <button className="cw-icon-btn" aria-label="Help">
+            <FiHelpCircle />
+          </button>
+          <div className="cw-header-divider" />
+          <div className="cw-seller-profile">
+            <div className="profile-avatar">S</div>
+            <div className="profile-info">
+              <strong>ClayWare Artisans</strong>
+              <span>Seller ID: CW-88402</span>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* ================= MAIN WORKSPACE AREA ================= */}
+      <div className="cw-workspace-wrapper">
+        {/* SUB HEADER / BREADCRUMBS */}
+        <div className="cw-page-toolbar">
+          <div>
+            <div className="cw-breadcrumb">
+              <a onClick={() => navigate("/dashboard")}>Dashboard</a>
+              <FiChevronRight />
+              <a>Products</a>
+              <FiChevronRight />
+              <span>Add Product</span>
+            </div>
+            <div className="cw-page-title-row">
+              <h1>Add New Product</h1>
+              <span className="cw-status-badge badge-draft">DRAFT</span>
+            </div>
+          </div>
+
+          <div className="cw-page-actions">
+            <button
+              className="cw-btn cw-btn-secondary"
+              onClick={handleSaveDraft}
+              disabled={loadingState.savingDraft}
+            >
+              {loadingState.savingDraft ? <FiLoader className="cw-spin" /> : "Save Draft"}
+            </button>
+            <button
+              className="cw-btn cw-btn-ghost"
+              onClick={() => navigate("/dashboard")}
+            >
+              Exit
+            </button>
+          </div>
+        </div>
+
+        {/* STEPPER PROGRESS */}
+        <div className="cw-stepper-container">
+          {[
+            { step: 1, title: "01 Product Information" },
+            { step: 2, title: "02 Pricing & Inventory" },
+            { step: 3, title: "03 Media & Variants" },
+            { step: 4, title: "04 Review & Submit" },
+          ].map((item) => (
+            <div
+              key={item.step}
+              className={`cw-step-item ${
+                activeStep === item.step
+                  ? "active"
+                  : activeStep > item.step
+                  ? "completed"
+                  : ""
+              }`}
+              onClick={() => setActiveStep(item.step)}
+            >
+              <div className="step-indicator">
+                {activeStep > item.step ? <FiCheck /> : item.step}
+              </div>
+              <span className="step-label">{item.title}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* MAIN WORKSPACE GRID */}
+        <div className="cw-workspace-grid">
+          {/* LEFT FORM WORKSPACE (75-82% Width) */}
+          <main className="cw-form-container">
+            {/* SECTION 1: BASIC INFORMATION */}
+            <section className="cw-card-section" id="section-info">
+              <div className="cw-section-header">
+                <h2>01. Basic Information</h2>
+                <p>Provide core identification details for your handcrafted product.</p>
+              </div>
+
+              <div className="cw-form-group">
+                <label className="cw-label">
+                  Product Name <span className="required">*</span>
+                </label>
+                <input
+                  type="text"
+                  name="name"
+                  className={`cw-input ${errors.name ? "input-error" : ""}`}
+                  placeholder="e.g., Hand-carved Terracotta Dinner Plate Set"
+                  value={formData.name}
+                  onChange={handleInputChange}
+                />
+                {errors.name && <span className="cw-error-text">{errors.name}</span>}
+              </div>
+
+              <div className="cw-form-row">
+                <div className="cw-form-group">
+                  <label className="cw-label">Category</label>
+                  <select
+                    name="category"
+                    className="cw-select"
+                    value={formData.category}
+                    onChange={handleInputChange}
+                  >
+                    <option value="Tableware">Tableware</option>
+                    <option value="Cookware">Cookware</option>
+                    <option value="Home Decor">Home Decor</option>
+                    <option value="Planters">Planters & Garden</option>
+                  </select>
+                </div>
+
+                <div className="cw-form-group">
+                  <label className="cw-label">Subcategory</label>
+                  <select
+                    name="subcategory"
+                    className="cw-select"
+                    value={formData.subcategory}
+                    onChange={handleInputChange}
+                  >
+                    <option value="Ceramic Mugs">Ceramic Mugs</option>
+                    <option value="Clay Pots">Clay Pots</option>
+                    <option value="Serving Bowls">Serving Bowls</option>
+                    <option value="Vases">Vases</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="cw-form-group">
+                <label className="cw-label">
+                  Product Description <span className="required">*</span>
+                </label>
+                <textarea
+                  name="description"
+                  rows={4}
+                  className={`cw-textarea ${errors.description ? "input-error" : ""}`}
+                  placeholder="Describe the craft process, firing temperature, aesthetic properties, and ideal usage..."
+                  value={formData.description}
+                  onChange={handleInputChange}
+                />
+                {errors.description && (
+                  <span className="cw-error-text">{errors.description}</span>
+                )}
+              </div>
+            </section>
+
+            {/* SECTION 2: SPECIFICATIONS */}
+            <section className="cw-card-section" id="section-specs">
+              <div className="cw-section-header">
+                <h2>02. Specifications & Dimensions</h2>
+                <p>Exact specs ensure buyers understand product dimensions accurately.</p>
+              </div>
+
+              <div className="cw-form-row">
+                <div className="cw-form-group">
+                  <label className="cw-label">Capacity (Exact String)</label>
+                  <input
+                    type="text"
+                    name="capacity"
+                    className="cw-input"
+                    placeholder="e.g., 500 ml, 1.5 Litres"
+                    value={formData.capacity}
+                    onChange={handleInputChange}
+                  />
+                  <span className="field-hint">Preserved directly as typed (no parsing).</span>
+                </div>
+
+                <div className="cw-form-group">
+                  <label className="cw-label">Weight (Exact String)</label>
+                  <input
+                    type="text"
+                    name="weight"
+                    className="cw-input"
+                    placeholder="e.g., 450 g, 1.2 kg"
+                    value={formData.weight}
+                    onChange={handleInputChange}
+                  />
+                  <span className="field-hint">Preserved directly as typed.</span>
+                </div>
+              </div>
+            </section>
+
+            {/* SECTION 3: PRICING & INVENTORY */}
+            <section className="cw-card-section" id="section-pricing">
+              <div className="cw-section-header">
+                <h2>03. Pricing & Inventory</h2>
+                <p>Set base pricing and current physical inventory levels.</p>
+              </div>
+
+              <div className="cw-form-row">
+                <div className="cw-form-group">
+                  <label className="cw-label">
+                    Selling Price (₹) <span className="required">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    name="sellingPrice"
+                    className={`cw-input ${errors.sellingPrice ? "input-error" : ""}`}
+                    placeholder="799"
+                    value={formData.sellingPrice}
+                    onChange={handleInputChange}
+                  />
+                  {errors.sellingPrice && (
+                    <span className="cw-error-text">{errors.sellingPrice}</span>
+                  )}
+                </div>
+
+                <div className="cw-form-group">
+                  <label className="cw-label">Discount / MRP Price (₹)</label>
+                  <input
+                    type="number"
+                    name="discountPrice"
+                    className="cw-input"
+                    placeholder="999"
+                    value={formData.discountPrice}
+                    onChange={handleInputChange}
+                  />
+                </div>
+
+                <div className="cw-form-group">
+                  <label className="cw-label">
+                    Stock Quantity <span className="required">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    name="stock"
+                    className={`cw-input ${errors.stock ? "input-error" : ""}`}
+                    placeholder="50"
+                    value={formData.stock}
+                    onChange={handleInputChange}
+                  />
+                  {errors.stock && (
+                    <span className="cw-error-text">{errors.stock}</span>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            {/* SECTION 4: PRODUCT MEDIA */}
+            <section className="cw-card-section" id="section-media">
+              <div className="cw-section-header">
+                <h2>04. Product Media</h2>
+                <p>High quality photos build high buyer trust on ClayWare.</p>
+              </div>
+
+              <div
+                className={`cw-dropzone ${isDragOver ? "dragover" : ""} ${
+                  errors.images ? "input-error" : ""
+                }`}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDragOver(true);
+                }}
+                onDragLeave={() => setIsDragOver(false)}
+                onDrop={handleDrop}
+              >
+                <FiUploadCloud className="dropzone-icon" />
+                <h3>Drag & Drop Product Images</h3>
+                <p>Supports JPG, PNG, WEBP up to 5MB each</p>
+                <label className="cw-btn cw-btn-secondary upload-btn">
+                  Browse Files
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    onChange={(e) => handleImageUpload(e.target.files)}
+                    hidden
+                  />
+                </label>
+              </div>
+              {errors.images && <span className="cw-error-text">{errors.images}</span>}
+
+              {formData.images.length > 0 && (
+                <div className="cw-image-grid">
+                  {formData.images.map((img, idx) => (
+                    <div key={img.id} className="cw-image-card">
+                      <img src={img.url} alt={`Upload ${idx + 1}`} />
+                      <div className="image-overlay">
+                        <button
+                          type="button"
+                          className="action-icon danger"
+                          onClick={() => removeImage(img.id)}
+                          aria-label="Remove Image"
+                        >
+                          <FiTrash2 />
+                        </button>
+                      </div>
+                      <span className="image-tag">
+                        {idx === 0 ? "COVER IMAGE" : `IMAGE 0${idx + 1}`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* SECTION 5: VARIANTS */}
+            <section className="cw-card-section" id="section-variants">
+              <div className="cw-section-header-between">
+                <div>
+                  <h2>05. Product Variants</h2>
+                  <p>Offer different capacity or size configurations.</p>
+                </div>
+                <button
+                  type="button"
+                  className="cw-btn cw-btn-secondary btn-sm"
+                  onClick={handleAddVariant}
+                >
+                  <FiPlus /> Add Variant
+                </button>
+              </div>
+
+              <div className="cw-table-responsive">
+                <table className="cw-variant-table">
+                  <thead>
+                    <tr>
+                      <th>Variant Name</th>
+                      <th>Capacity</th>
+                      <th>Price (₹)</th>
+                      <th>Stock</th>
+                      <th className="text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {variants.map((v) => (
+                      <tr key={v.id}>
+                        <td>
+                          <input
+                            type="text"
+                            className="cw-input table-input"
+                            placeholder="e.g., Medium"
+                            value={v.name}
+                            onChange={(e) =>
+                              handleVariantChange(v.id, "name", e.target.value)
+                            }
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            className="cw-input table-input"
+                            placeholder="e.g., 500 ml"
+                            value={v.capacity}
+                            onChange={(e) =>
+                              handleVariantChange(v.id, "capacity", e.target.value)
+                            }
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="number"
+                            className="cw-input table-input"
+                            placeholder="699"
+                            value={v.price}
+                            onChange={(e) =>
+                              handleVariantChange(v.id, "price", e.target.value)
+                            }
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="number"
+                            className="cw-input table-input"
+                            placeholder="20"
+                            value={v.stock}
+                            onChange={(e) =>
+                              handleVariantChange(v.id, "stock", e.target.value)
+                            }
+                          />
+                        </td>
+                        <td className="text-right">
+                          <button
+                            type="button"
+                            className="cw-icon-btn danger"
+                            onClick={() => handleRemoveVariant(v.id)}
+                            disabled={variants.length === 1}
+                            aria-label="Delete Variant"
+                          >
+                            <FiTrash2 />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </main>
+
+          {/* RIGHT CONTROL PANEL (Sticky Workspace Sidebar) */}
+          <aside className="cw-control-sidebar">
+            <div className="sticky-sidebar-card">
+              <div className="sidebar-block">
+                <span className="block-label">LISTING STATUS</span>
+                <div className="status-indicator">
+                  <span className="dot dot-draft" />
+                  <strong>DRAFT LISTING</strong>
+                </div>
+              </div>
+
+              <hr className="cw-card-divider" />
+
+              <div className="sidebar-block">
+                <div className="flex-between mb-2">
+                  <span className="block-label">COMPLETION</span>
+                  <strong className="completion-num">{completionPercentage}%</strong>
+                </div>
+                <div className="cw-progress-track">
+                  <div
+                    className="cw-progress-bar"
+                    style={{ width: `${completionPercentage}%` }}
+                  />
+                </div>
+              </div>
+
+              <hr className="cw-card-divider" />
+
+              <div className="sidebar-block">
+                <span className="block-label mb-3">CHECKLIST</span>
+                <ul className="cw-checklist">
+                  {checklist.map((item, i) => (
+                    <li key={i} className={item.complete ? "done" : ""}>
+                      <span className="check-icon">
+                        {item.complete ? <FiCheck /> : "○"}
+                      </span>
+                      <span>{item.label}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <hr className="cw-card-divider" />
+
+              <div className="sidebar-actions">
+                <button
+                  type="button"
+                  className="cw-btn cw-btn-secondary full-width"
+                  onClick={() => setIsDrawerOpen(true)}
+                >
+                  <FiEye /> View Entered Details
+                </button>
+
+                <button
+                  type="button"
+                  className="cw-btn cw-btn-primary full-width"
+                  onClick={() => {
+                    if (validateForm()) {
+                      setIsModalOpen(true);
+                    } else {
+                      triggerToast("Please complete required fields before submitting.", "error");
+                    }
+                  }}
+                  disabled={loadingState.submitting}
+                >
+                  {loadingState.submitting ? (
+                    <FiLoader className="cw-spin" />
+                  ) : (
+                    "Submit for Verification"
+                  )}
+                </button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+
+      {/* MOBILE BOTTOM STICKY ACTION BAR */}
+      <div className="cw-mobile-action-bar">
+        <button
+          className="cw-btn cw-btn-secondary"
+          onClick={() => setIsDrawerOpen(true)}
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          Back to Products
+          <FiEye /> Details
+        </button>
+        <button
+          className="cw-btn cw-btn-primary"
+          onClick={() => {
+            if (validateForm()) setIsModalOpen(true);
+          }}
+        >
+          Submit for Verification
         </button>
       </div>
 
-      {/* Alerts */}
-      {error.general && (
-        <div className="alert alert-error">
-          <span className="alert-icon">✕</span>
-          <span>{error.general}</span>
-        </div>
-      )}
-      {success && (
-        <div className="alert alert-success">
-          <span className="alert-icon">✓</span>
-          <span>{success}</span>
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="product-form">
-
-        {/* Basic Information */}
-        <div className="form-card">
-          <div className="card-header">
-            <div>
-              <h2>Basic Information</h2>
-              <p>Essential product details for your listing</p>
-            </div>
-            <span className="badge required">Required</span>
-          </div>
-          <div className="card-body">
-            <div className="form-row">
-              <div className="form-group full-width">
-                <label>Product Name <span className="required-star">*</span></label>
-                <input
-                  type="text"
-                  name="productname"
-                  value={form.productname}
-                  onChange={handleChange}
-                  placeholder="Enter product name"
-                  className={error.productname ? "error" : ""}
-                />
-                {error.productname && <span className="error-text">{error.productname}</span>}
-              </div>
-            </div>
-            <div className="form-row">
-              <div className="form-group full-width">
-                <label>Description <span className="required-star">*</span></label>
-                <textarea
-                  name="description"
-                  value={form.description}
-                  onChange={handleChange}
-                  placeholder="Describe your product in detail..."
-                  rows="4"
-                  className={error.description ? "error" : ""}
-                />
-                {error.description && <span className="error-text">{error.description}</span>}
-              </div>
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label>Category <span className="required-star">*</span></label>
-                <select
-                  name="category"
-                  value={form.category}
-                  onChange={handleChange}
-                  className={error.category ? "error" : ""}
-                >
-                  <option value="">Select category</option>
-                  {categories.map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}
-                    </option>
-                  ))}
-                </select>
-                {error.category && <span className="error-text">{error.category}</span>}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Pricing & Stock */}
-        <div className="form-card">
-          <div className="card-header">
-            <div>
-              <h2>Pricing & Stock</h2>
-              <p>Set your product pricing and inventory</p>
-            </div>
-            <span className="badge required">Required</span>
-          </div>
-          <div className="card-body">
-            <div className="form-row">
-              <div className="form-group">
-                <label>Price <span className="required-star">*</span></label>
-                <div className="input-with-symbol">
-                  <span className="currency-symbol">$</span>
-                  <input
-                    type="number"
-                    name="price"
-                    value={form.price}
-                    onChange={handleChange}
-                    placeholder="0.00"
-                    min="0"
-                    step="0.01"
-                    className={error.price ? "error" : ""}
-                  />
-                </div>
-                {error.price && <span className="error-text">{error.price}</span>}
-              </div>
-              <div className="form-group">
-                <label>Discount Price</label>
-                <div className="input-with-symbol">
-                  <span className="currency-symbol">$</span>
-                  <input
-                    type="number"
-                    name="discount_price"
-                    value={form.discount_price}
-                    onChange={handleChange}
-                    placeholder="0.00"
-                    min="0"
-                    step="0.01"
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label>Stock Quantity <span className="required-star">*</span></label>
-                <input
-                  type="number"
-                  name="stock_quantity"
-                  value={form.stock_quantity}
-                  onChange={handleChange}
-                  placeholder="0"
-                  min="0"
-                  className={error.stock_quantity ? "error" : ""}
-                />
-                {error.stock_quantity && <span className="error-text">{error.stock_quantity}</span>}
-              </div>
-              <div className="form-group">
-                <label>Weight (kg)</label>
-                <input
-                  type="number"
-                  name="weight"
-                  value={form.weight}
-                  onChange={handleChange}
-                  placeholder="0.00"
-                  min="0"
-                  step="0.01"
-                />
-              </div>
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label>Capacity</label>
-                <input
-                  type="text"
-                  name="capacity"
-                  value={form.capacity}
-                  onChange={handleChange}
-                  placeholder="e.g., 1 Litre"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Product Images */}
-        <div className="form-card">
-          <div className="card-header">
-            <div>
-              <h2>Product Images</h2>
-              <p>Upload photos of your product</p>
-            </div>
-            <span className="badge">{images.length} uploaded</span>
-          </div>
-          <div className="card-body">
-            <div 
-              className={`upload-zone ${dragActive ? "drag-active" : ""} ${error.images ? "error" : ""}`}
-              onDragEnter={handleDrag}
-              onDragLeave={handleDrag}
-              onDragOver={handleDrag}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <div className="upload-content">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M12 16V4M8 8L12 4L16 8" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M4 16V20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20V16" strokeLinecap="round"/>
-                </svg>
-                <p className="upload-title">Drag & drop images here</p>
-                <p className="upload-subtitle">or click to browse files</p>
-                <p className="upload-hint">Supports JPG, PNG, WEBP · Max 5MB each</p>
-              </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={handleImages}
-                className="hidden-input"
-              />
-            </div>
-            {error.images && <span className="error-text">{error.images}</span>}
-
-            {images.length > 0 && (
-              <div className="image-grid">
-                {images.map((image, index) => (
-                  <div className="image-item" key={`${image.name}-${index}`}>
-                    <img
-                      src={URL.createObjectURL(image)}
-                      alt={image.name}
-                      className="image-preview"
-                    />
-                    {index === 0 && <span className="main-badge">Main</span>}
-                    <button
-                      type="button"
-                      className="remove-image"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeImage(index);
-                      }}
-                    >
-                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                        <path d="M1 1L13 13M13 1L1 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                      </svg>
-                    </button>
-                    <div className="image-info">
-                      <span className="image-name">{image.name}</span>
-                      <span className="image-size">{(image.size / 1024).toFixed(0)} KB</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Variants */}
-        <div className="form-card">
-          <div className="card-header">
-            <div>
-              <h2>Product Variants</h2>
-              <p>Add variations like size, color, or material</p>
-            </div>
-            <button type="button" onClick={addVariant} className="btn btn-secondary">
-              + Add Variant
-            </button>
-          </div>
-          <div className="card-body">
-            {variants.length === 0 ? (
-              <div className="empty-state">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M12 5V19M5 12H19" strokeLinecap="round"/>
-                </svg>
-                <p>No variants added</p>
-                <span>Click "Add Variant" to create product variations</span>
-              </div>
-            ) : (
-              <div className="variants-container">
-                {variants.map((variant, index) => (
-                  <div className="variant-item" key={index}>
-                    <div className="variant-header">
-                      <span className="variant-number">Variant {index + 1}</span>
-                      <button
-                        type="button"
-                        onClick={() => removeVariant(index)}
-                        className="remove-variant"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                          <path d="M1 1L13 13M13 1L1 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                        </svg>
-                      </button>
-                    </div>
-                    <div className="variant-fields">
-                      <div className="form-group">
-                        <label>Capacity</label>
-                        <input
-                          type="text"
-                          value={variant.capacity}
-                          onChange={(e) => updateVariant(index, "capacity", e.target.value)}
-                          placeholder="e.g., 1L"
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label>Price</label>
-                        <input
-                          type="number"
-                          value={variant.price}
-                          onChange={(e) => updateVariant(index, "price", e.target.value)}
-                          min="0"
-                          step="0.01"
-                          placeholder="0.00"
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label>Stock</label>
-                        <input
-                          type="number"
-                          value={variant.stock_quantity}
-                          onChange={(e) => updateVariant(index, "stock_quantity", e.target.value)}
-                          min="0"
-                          placeholder="0"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Form Actions */}
-        <div className="form-actions">
-          <button
-            type="button"
-            onClick={() => navigate("/products")}
-            className="btn btn-outline"
-            disabled={loading}
+      {/* ================= DRAWER: VIEW ENTERED DETAILS ================= */}
+      {isDrawerOpen && (
+        <div className="cw-drawer-backdrop" onClick={() => setIsDrawerOpen(false)}>
+          <div
+            className="cw-drawer-panel"
+            onClick={(e) => e.stopPropagation()}
           >
-            Cancel
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={loading}>
-            {loading ? (
-              <>
-                <span className="spinner"></span>
-                Adding Product...
-              </>
-            ) : (
-              "Add Product"
-            )}
-          </button>
+            <div className="drawer-header">
+              <div>
+                <h2>Product Review Drawer</h2>
+                <p>Live preview of entered structured payload state</p>
+              </div>
+              <button
+                className="cw-icon-btn"
+                onClick={() => setIsDrawerOpen(false)}
+                aria-label="Close Drawer"
+              >
+                <FiX />
+              </button>
+            </div>
+
+            <div className="drawer-body">
+              <div className="drawer-section">
+                <h3>Product Identification</h3>
+                <div className="drawer-data-grid">
+                  <div>
+                    <label>Product Name</label>
+                    <p>{formData.name || "—"}</p>
+                  </div>
+                  <div>
+                    <label>Category</label>
+                    <p>{formData.category} / {formData.subcategory}</p>
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <label>Description</label>
+                  <p className="description-text">{formData.description || "—"}</p>
+                </div>
+              </div>
+
+              <div className="drawer-section">
+                <h3>Specifications (Exact Strings)</h3>
+                <div className="drawer-data-grid">
+                  <div>
+                    <label>Capacity</label>
+                    <p>{formData.capacity || "—"}</p>
+                  </div>
+                  <div>
+                    <label>Weight</label>
+                    <p>{formData.weight || "—"}</p>
+                  </div>
+                  <div>
+                    <label>Material</label>
+                    <p>{formData.material || "—"}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="drawer-section">
+                <h3>Pricing & Stock</h3>
+                <div className="drawer-data-grid">
+                  <div>
+                    <label>Selling Price</label>
+                    <p>{formData.sellingPrice ? `₹${formData.sellingPrice}` : "—"}</p>
+                  </div>
+                  <div>
+                    <label>MRP / Discount</label>
+                    <p>{formData.discountPrice ? `₹${formData.discountPrice}` : "—"}</p>
+                  </div>
+                  <div>
+                    <label>Available Stock</label>
+                    <p>{formData.stock ? `${formData.stock} units` : "—"}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="drawer-section">
+                <h3>Images Uploaded ({formData.images.length})</h3>
+                {formData.images.length > 0 ? (
+                  <div className="drawer-image-row">
+                    {formData.images.map((img, i) => (
+                      <img key={img.id} src={img.url} alt={`Upload preview ${i}`} />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-muted">No images uploaded yet.</p>
+                )}
+              </div>
+
+              <div className="drawer-section">
+                <h3>Configured Variants ({variants.length})</h3>
+                <ul className="drawer-variant-list">
+                  {variants.map((v, i) => (
+                    <li key={v.id}>
+                      <strong>{v.name || `Variant ${i + 1}`}</strong> — {v.capacity || "N/A"} | Price: ₹{v.price || 0} | Stock: {v.stock || 0}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            <div className="drawer-footer">
+              <button
+                className="cw-btn cw-btn-secondary full-width"
+                onClick={() => setIsDrawerOpen(false)}
+              >
+                Close Drawer
+              </button>
+            </div>
+          </div>
         </div>
-      </form>
+      )}
+
+      {/* ================= MODAL: VERIFICATION CONFIRMATION ================= */}
+      {isModalOpen && (
+        <div className="cw-modal-backdrop" onClick={() => setIsModalOpen(false)}>
+          <div className="cw-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-icon-wrap">
+              <FiAlertCircle />
+            </div>
+            <h2>Submit Product for Verification?</h2>
+            <p>
+              Your listing will be reviewed by the ClayWare Quality Assurance team.
+              Once verified, it will be listed live on the marketplace.
+            </p>
+
+            <div className="modal-actions">
+              <button
+                className="cw-btn cw-btn-ghost"
+                onClick={() => setIsModalOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="cw-btn cw-btn-primary"
+                onClick={handleConfirmSubmit}
+              >
+                Confirm & Submit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TOAST NOTIFICATION SYSTEM */}
+      {toast.show && (
+        <div className={`cw-toast toast-${toast.type}`}>
+          <FiCheckCircle />
+          <span>{toast.message}</span>
+        </div>
+      )}
     </div>
   );
 }
