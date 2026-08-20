@@ -6,6 +6,7 @@ export default function SellerRegister() {
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(false);
+  const [locationLoading, setLocationLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
   const [form, setForm] = useState({
@@ -15,10 +16,16 @@ export default function SellerRegister() {
     password: "",
     shop_name: "",
     shop_address: "",
+    city: "",
+    state: "",
+    pincode: "",
     gst_number: "",
+    latitude: "",
+    longitude: "",
   });
 
   const [idProof, setIdProof] = useState(null);
+  const [locationConfirmed, setLocationConfirmed] = useState(false);
 
   // ==========================================================
   // HANDLE TEXT INPUT
@@ -47,14 +54,180 @@ export default function SellerRegister() {
   };
 
   // ==========================================================
-  // BACKEND ERROR HANDLING
+  // GET CURRENT LOCATION
+  // ==========================================================
+
+  const getCurrentLocation = () => {
+    setErrorMessage("");
+
+    if (!navigator.geolocation) {
+      setErrorMessage(
+        "Location services are not supported by your browser."
+      );
+      return;
+    }
+
+    setLocationLoading(true);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const latitude = position.coords.latitude;
+        const longitude = position.coords.longitude;
+
+        setForm((prev) => ({
+          ...prev,
+          latitude: latitude.toString(),
+          longitude: longitude.toString(),
+        }));
+
+        /*
+         * Reverse geocoding.
+         *
+         * This example uses OpenStreetMap Nominatim.
+         * For production, you can replace this with
+         * Google Maps / Mapbox / your own geocoding API.
+         */
+
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&addressdetails=1`,
+            {
+              headers: {
+                Accept: "application/json",
+              },
+            }
+          );
+
+          if (!response.ok) {
+            throw new Error("Unable to detect address.");
+          }
+
+          const data = await response.json();
+          const address = data.address || {};
+
+          const city =
+            address.city ||
+            address.town ||
+            address.village ||
+            address.municipality ||
+            "";
+
+          const state = address.state || "";
+
+          const pincode =
+            address.postcode || "";
+
+          const detectedAddress =
+            data.display_name || "";
+
+          setForm((prev) => ({
+            ...prev,
+
+            latitude: latitude.toString(),
+            longitude: longitude.toString(),
+
+            city: city,
+            state: state,
+            pincode: pincode,
+
+            shop_address:
+              prev.shop_address.trim()
+                ? prev.shop_address
+                : detectedAddress,
+          }));
+
+          setLocationConfirmed(true);
+        } catch (error) {
+          console.error(
+            "Reverse geocoding failed:",
+            error
+          );
+
+          /*
+           * GPS still worked.
+           * We keep coordinates even if address
+           * lookup fails.
+           */
+
+          setLocationConfirmed(true);
+
+          setErrorMessage(
+            "Location detected, but the address could not be retrieved automatically. Please enter your shop address manually."
+          );
+        } finally {
+          setLocationLoading(false);
+        }
+      },
+
+      (error) => {
+        console.error(
+          "Geolocation error:",
+          error
+        );
+
+        setLocationLoading(false);
+
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            setErrorMessage(
+              "Location permission was denied. Please allow location access in your browser and try again."
+            );
+            break;
+
+          case error.POSITION_UNAVAILABLE:
+            setErrorMessage(
+              "Your current location could not be determined. Please try again."
+            );
+            break;
+
+          case error.TIMEOUT:
+            setErrorMessage(
+              "Location request timed out. Please try again."
+            );
+            break;
+
+          default:
+            setErrorMessage(
+              "Unable to detect your location."
+            );
+        }
+      },
+
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0,
+      }
+    );
+  };
+
+  // ==========================================================
+  // MANUAL LOCATION CONFIRMATION
+  // ==========================================================
+
+  const confirmManualLocation = () => {
+    if (
+      !form.shop_address.trim() ||
+      !form.city.trim() ||
+      !form.state.trim() ||
+      !form.pincode.trim()
+    ) {
+      setErrorMessage(
+        "Please enter your complete shop location before confirming."
+      );
+
+      return;
+    }
+
+    setLocationConfirmed(true);
+    setErrorMessage("");
+  };
+
+  // ==========================================================
+  // ERROR MESSAGE
   // ==========================================================
 
   const getErrorMessage = (error) => {
-    // --------------------------------------------------------
-    // Django did not respond
-    // --------------------------------------------------------
-
     if (!error.response) {
       return (
         "Unable to connect to the server.\n\n" +
@@ -65,67 +238,48 @@ export default function SellerRegister() {
     const status = error.response.status;
     const data = error.response.data;
 
-    console.log("=================================");
     console.log("BACKEND ERROR");
     console.log("STATUS:", status);
     console.log("DATA:", data);
-
-    // --------------------------------------------------------
-    // String response
-    // --------------------------------------------------------
 
     if (typeof data === "string") {
       return data;
     }
 
-    // --------------------------------------------------------
-    // Normal custom message
-    // --------------------------------------------------------
-
     if (data?.message) {
       return data.message;
     }
-
-    // --------------------------------------------------------
-    // DRF detail
-    // --------------------------------------------------------
 
     if (data?.detail) {
       return data.detail;
     }
 
-    // --------------------------------------------------------
-    // Validation errors
-    // Example:
-    //
-    // {
-    //   "email": ["This email already exists."]
-    // }
-    // --------------------------------------------------------
-
-    if (typeof data === "object" && data !== null) {
+    if (
+      typeof data === "object" &&
+      data !== null
+    ) {
       const messages = [];
 
-      Object.entries(data).forEach(([field, value]) => {
-        if (Array.isArray(value)) {
-          messages.push(
-            `${formatFieldName(field)}: ${value.join(", ")}`
-          );
-        } else if (typeof value === "string") {
-          messages.push(
-            `${formatFieldName(field)}: ${value}`
-          );
+      Object.entries(data).forEach(
+        ([field, value]) => {
+          if (Array.isArray(value)) {
+            messages.push(
+              `${formatFieldName(field)}: ${value.join(", ")}`
+            );
+          } else if (
+            typeof value === "string"
+          ) {
+            messages.push(
+              `${formatFieldName(field)}: ${value}`
+            );
+          }
         }
-      });
+      );
 
       if (messages.length > 0) {
         return messages.join("\n");
       }
     }
-
-    // --------------------------------------------------------
-    // Status based fallback
-    // --------------------------------------------------------
 
     if (status === 400) {
       return (
@@ -134,32 +288,21 @@ export default function SellerRegister() {
       );
     }
 
-    if (status === 401) {
-      return "Authentication failed.";
-    }
-
-    if (status === 403) {
-      return "You are not allowed to perform this action.";
-    }
-
     if (status === 409) {
       return (
-        "An account with this email or mobile number " +
-        "already exists."
+        "An account with this email or mobile number already exists."
       );
     }
 
     if (status === 413) {
       return (
-        "The uploaded ID proof is too large. " +
-        "Please choose a smaller file."
+        "The uploaded ID proof is too large. Please choose a smaller file."
       );
     }
 
     if (status === 500) {
       return (
-        "A server error occurred.\n" +
-        "Please try again later."
+        "A server error occurred. Please try again later."
       );
     }
 
@@ -173,11 +316,13 @@ export default function SellerRegister() {
   const formatFieldName = (field) => {
     return field
       .replaceAll("_", " ")
-      .replace(/\b\w/g, (char) => char.toUpperCase());
+      .replace(/\b\w/g, (char) =>
+        char.toUpperCase()
+      );
   };
 
   // ==========================================================
-  // FRONTEND VALIDATION
+  // VALIDATION
   // ==========================================================
 
   const validateForm = () => {
@@ -209,6 +354,26 @@ export default function SellerRegister() {
       return "Please enter your shop address.";
     }
 
+    if (!form.city.trim()) {
+      return "Please enter your city.";
+    }
+
+    if (!form.state.trim()) {
+      return "Please enter your state.";
+    }
+
+    if (!form.pincode.trim()) {
+      return "Please enter your pincode.";
+    }
+
+    if (!locationConfirmed) {
+      return "Please detect or confirm your shop location.";
+    }
+
+    if (!form.latitude || !form.longitude) {
+      return "Please provide your shop's exact location.";
+    }
+
     if (!idProof) {
       return "Please upload your ID proof.";
     }
@@ -225,29 +390,22 @@ export default function SellerRegister() {
 
     setErrorMessage("");
 
-    // --------------------------------------------------------
-    // Validate
-    // --------------------------------------------------------
-
-    const validationError = validateForm();
+    const validationError =
+      validateForm();
 
     if (validationError) {
       setErrorMessage(validationError);
       return;
     }
 
-    // --------------------------------------------------------
-    // Start loading
-    // --------------------------------------------------------
-
     setLoading(true);
 
     try {
-      // ======================================================
-      // FORM DATA
-      // ======================================================
-
       const formData = new FormData();
+
+      // ======================================================
+      // PERSONAL DETAILS
+      // ======================================================
 
       formData.append(
         "name",
@@ -269,6 +427,10 @@ export default function SellerRegister() {
         form.password
       );
 
+      // ======================================================
+      // SHOP DETAILS
+      // ======================================================
+
       formData.append(
         "shop_name",
         form.shop_name.trim()
@@ -279,13 +441,49 @@ export default function SellerRegister() {
         form.shop_address.trim()
       );
 
-      // GST is optional
+      formData.append(
+        "city",
+        form.city.trim()
+      );
+
+      formData.append(
+        "state",
+        form.state.trim()
+      );
+
+      formData.append(
+        "pincode",
+        form.pincode.trim()
+      );
+
+      // ======================================================
+      // LOCATION
+      // ======================================================
+
+      formData.append(
+        "latitude",
+        form.latitude
+      );
+
+      formData.append(
+        "longitude",
+        form.longitude
+      );
+
+      // ======================================================
+      // GST
+      // ======================================================
+
       if (form.gst_number.trim()) {
         formData.append(
           "gst_number",
           form.gst_number.trim()
         );
       }
+
+      // ======================================================
+      // ID PROOF
+      // ======================================================
 
       formData.append(
         "id_proof",
@@ -296,18 +494,22 @@ export default function SellerRegister() {
       // DEBUG
       // ======================================================
 
-      console.log("=================================");
-      console.log("SELLER REGISTRATION");
-      console.log("=================================");
+      console.log(
+        "SELLER REGISTRATION"
+      );
 
       console.log("Name:", form.name);
       console.log("Email:", form.email);
       console.log("Phone:", form.phone_number);
       console.log("Shop:", form.shop_name);
-      console.log("ID Proof:", idProof.name);
+      console.log("City:", form.city);
+      console.log("State:", form.state);
+      console.log("Pincode:", form.pincode);
+      console.log("Latitude:", form.latitude);
+      console.log("Longitude:", form.longitude);
 
       // ======================================================
-      // API REQUEST
+      // API
       // ======================================================
 
       const response = await api.post(
@@ -316,26 +518,12 @@ export default function SellerRegister() {
       );
 
       // ======================================================
-      // SUCCESS RESPONSE
-      // ======================================================
-
-      console.log("=================================");
-      console.log("SELLER REGISTRATION SUCCESS");
-      console.log("=================================");
-
-      console.log("HTTP STATUS:", response.status);
-      console.log("RESPONSE:", response.data);
-
-      // ======================================================
-      // 201 CREATED
+      // SUCCESS
       // ======================================================
 
       if (response.status === 201) {
-        const data = response.data || {};
-
-        // ----------------------------------------------------
-        // Save registration information
-        // ----------------------------------------------------
+        const data =
+          response.data || {};
 
         const registrationData = {
           user_id:
@@ -345,10 +533,12 @@ export default function SellerRegister() {
             data.seller_id || null,
 
           name:
-            data.name || form.name.trim(),
+            data.name ||
+            form.name.trim(),
 
           email:
-            data.email || form.email.trim(),
+            data.email ||
+            form.email.trim(),
 
           phone_number:
             data.phone_number ||
@@ -358,32 +548,41 @@ export default function SellerRegister() {
             data.shop_name ||
             form.shop_name.trim(),
 
+          city:
+            data.city ||
+            form.city.trim(),
+
+          state:
+            data.state ||
+            form.state.trim(),
+
+          pincode:
+            data.pincode ||
+            form.pincode.trim(),
+
+          latitude:
+            data.latitude ||
+            form.latitude,
+
+          longitude:
+            data.longitude ||
+            form.longitude,
+
           status:
-            data.status || "pending",
+            data.status ||
+            "pending",
 
           message:
             data.message ||
             "Seller registration submitted successfully.",
         };
 
-        console.log(
-          "REGISTRATION DATA:",
-          registrationData
-        );
-
-        // ----------------------------------------------------
-        // Save temporarily for approval page
-        // ----------------------------------------------------
-
         sessionStorage.setItem(
           "sellerRegistration",
-          JSON.stringify(registrationData)
+          JSON.stringify(
+            registrationData
+          )
         );
-
-        // ----------------------------------------------------
-        // IMPORTANT
-        // Redirect immediately
-        // ----------------------------------------------------
 
         navigate(
           "/seller-approval-pending",
@@ -395,42 +594,19 @@ export default function SellerRegister() {
         return;
       }
 
-      // ======================================================
-      // UNEXPECTED SUCCESS
-      // ======================================================
-
       setErrorMessage(
         response.data?.message ||
           "Registration could not be completed."
       );
-
     } catch (error) {
-      // ======================================================
-      // API ERROR
-      // ======================================================
-
-      console.error("=================================");
-      console.error("SELLER REGISTRATION FAILED");
-      console.error("=================================");
-
-      console.error("ERROR:", error);
       console.error(
-        "STATUS:",
-        error.response?.status
-      );
-      console.error(
-        "DATA:",
-        error.response?.data
+        "SELLER REGISTRATION FAILED:",
+        error
       );
 
-      // ------------------------------------------------------
-      // Display proper error
-      // ------------------------------------------------------
-
-      const message = getErrorMessage(error);
-
-      setErrorMessage(message);
-
+      setErrorMessage(
+        getErrorMessage(error)
+      );
     } finally {
       setLoading(false);
     }
@@ -443,17 +619,14 @@ export default function SellerRegister() {
   return (
     <div
       style={{
-        maxWidth: "600px",
+        maxWidth: "650px",
         margin: "40px auto",
         padding: "30px",
         border: "1px solid #ddd",
-        borderRadius: "10px",
+        borderRadius: "12px",
+        background: "#fff",
       }}
     >
-      {/* ====================================================
-          TITLE
-      ===================================================== */}
-
       <h2>Seller Registration</h2>
 
       {/* ====================================================
@@ -473,7 +646,9 @@ export default function SellerRegister() {
             lineHeight: "1.5",
           }}
         >
-          <strong>Registration failed</strong>
+          <strong>
+            Registration failed
+          </strong>
 
           <div
             style={{
@@ -485,13 +660,13 @@ export default function SellerRegister() {
         </div>
       )}
 
-      {/* ====================================================
-          FORM
-      ===================================================== */}
-
       <form onSubmit={handleSubmit}>
 
-        {/* NAME */}
+        {/* ==================================================
+            PERSONAL DETAILS
+        =================================================== */}
+
+        <h3>Personal Details</h3>
 
         <input
           type="text"
@@ -501,12 +676,8 @@ export default function SellerRegister() {
           onChange={handleChange}
           disabled={loading}
           required
+          style={inputStyle}
         />
-
-        <br />
-        <br />
-
-        {/* EMAIL */}
 
         <input
           type="email"
@@ -516,12 +687,8 @@ export default function SellerRegister() {
           onChange={handleChange}
           disabled={loading}
           required
+          style={inputStyle}
         />
-
-        <br />
-        <br />
-
-        {/* PHONE */}
 
         <input
           type="tel"
@@ -531,12 +698,8 @@ export default function SellerRegister() {
           onChange={handleChange}
           disabled={loading}
           required
+          style={inputStyle}
         />
-
-        <br />
-        <br />
-
-        {/* PASSWORD */}
 
         <input
           type="password"
@@ -546,12 +709,20 @@ export default function SellerRegister() {
           onChange={handleChange}
           disabled={loading}
           required
+          style={inputStyle}
         />
 
-        <br />
-        <br />
+        {/* ==================================================
+            SHOP DETAILS
+        =================================================== */}
 
-        {/* SHOP NAME */}
+        <h3
+          style={{
+            marginTop: "30px",
+          }}
+        >
+          Shop Details
+        </h3>
 
         <input
           type="text"
@@ -561,26 +732,187 @@ export default function SellerRegister() {
           onChange={handleChange}
           disabled={loading}
           required
+          style={inputStyle}
         />
-
-        <br />
-        <br />
-
-        {/* SHOP ADDRESS */}
 
         <textarea
           name="shop_address"
-          placeholder="Shop Address"
+          placeholder="Complete Shop Address"
           value={form.shop_address}
           onChange={handleChange}
           disabled={loading}
           required
+          rows={4}
+          style={inputStyle}
         />
 
-        <br />
-        <br />
+        <input
+          type="text"
+          name="city"
+          placeholder="City"
+          value={form.city}
+          onChange={handleChange}
+          disabled={loading}
+          required
+          style={inputStyle}
+        />
 
-        {/* GST */}
+        <input
+          type="text"
+          name="state"
+          placeholder="State"
+          value={form.state}
+          onChange={handleChange}
+          disabled={loading}
+          required
+          style={inputStyle}
+        />
+
+        <input
+          type="text"
+          name="pincode"
+          placeholder="Pincode"
+          value={form.pincode}
+          onChange={handleChange}
+          disabled={loading}
+          required
+          maxLength={6}
+          style={inputStyle}
+        />
+
+        {/* ==================================================
+            LOCATION
+        =================================================== */}
+
+        <div
+          style={{
+            marginTop: "25px",
+            padding: "20px",
+            border: "1px solid #ddd",
+            borderRadius: "10px",
+            background: "#f8fafc",
+          }}
+        >
+          <h3
+            style={{
+              marginTop: 0,
+            }}
+          >
+            📍 Shop Location
+          </h3>
+
+          <p
+            style={{
+              color: "#666",
+              fontSize: "14px",
+            }}
+          >
+            Your shop location helps ClayWare verify
+            your business and support delivery services.
+          </p>
+
+          <button
+            type="button"
+            onClick={getCurrentLocation}
+            disabled={
+              loading || locationLoading
+            }
+            style={{
+              padding: "12px 18px",
+              border: "none",
+              borderRadius: "8px",
+              background: "#166534",
+              color: "#fff",
+              cursor:
+                loading || locationLoading
+                  ? "not-allowed"
+                  : "pointer",
+              fontWeight: 600,
+            }}
+          >
+            {locationLoading
+              ? "Detecting Location..."
+              : "📍 Use My Current Location"}
+          </button>
+
+          {form.latitude &&
+            form.longitude && (
+              <div
+                style={{
+                  marginTop: "15px",
+                  padding: "12px",
+                  background: "#ecfdf5",
+                  border: "1px solid #a7f3d0",
+                  borderRadius: "8px",
+                  color: "#065f46",
+                  fontSize: "14px",
+                }}
+              >
+                <strong>
+                  ✓ Location detected
+                </strong>
+
+                <div
+                  style={{
+                    marginTop: "5px",
+                  }}
+                >
+                  Latitude:{" "}
+                  {form.latitude}
+                </div>
+
+                <div>
+                  Longitude:{" "}
+                  {form.longitude}
+                </div>
+              </div>
+            )}
+
+          {!locationConfirmed && (
+            <p
+              style={{
+                marginTop: "12px",
+                color: "#b45309",
+                fontSize: "14px",
+              }}
+            >
+              Please detect your location or
+              enter your address and confirm it.
+            </p>
+          )}
+
+          {form.latitude &&
+            form.longitude && (
+              <button
+                type="button"
+                onClick={() =>
+                  setLocationConfirmed(true)
+                }
+                style={{
+                  marginTop: "12px",
+                  padding: "9px 14px",
+                  borderRadius: "7px",
+                  border: "1px solid #ccc",
+                  background: "#fff",
+                  cursor: "pointer",
+                }}
+              >
+                ✓ Confirm This Location
+              </button>
+            )}
+        </div>
+
+        {/* ==================================================
+            GST
+        =================================================== */}
+
+        <h3
+          style={{
+            marginTop: "30px",
+          }}
+        >
+          Business Verification
+        </h3>
 
         <input
           type="text"
@@ -589,64 +921,95 @@ export default function SellerRegister() {
           value={form.gst_number}
           onChange={handleChange}
           disabled={loading}
+          style={inputStyle}
         />
-
-        <br />
-        <br />
-
-        {/* ID PROOF */}
-
-        <label>
-          <strong>ID Proof</strong>
-        </label>
-
-        <br />
-
-        <input
-          type="file"
-          name="id_proof"
-          accept="image/*,.pdf"
-          onChange={handleFileChange}
-          disabled={loading}
-          required
-        />
-
-        {idProof && (
-          <p>
-            Selected file:{" "}
-            <strong>{idProof.name}</strong>
-          </p>
-        )}
-
-        <br />
 
         {/* ==================================================
-            REGISTER BUTTON
-        ================================================== */}
+            ID PROOF
+        =================================================== */}
+
+        <div
+          style={{
+            marginTop: "20px",
+          }}
+        >
+          <label>
+            <strong>ID Proof</strong>
+          </label>
+
+          <p
+            style={{
+              color: "#666",
+              fontSize: "14px",
+            }}
+          >
+            Upload Aadhaar, PAN, Driving Licence,
+            or another accepted identity document.
+          </p>
+
+          <input
+            type="file"
+            name="id_proof"
+            accept="image/*,.pdf"
+            onChange={handleFileChange}
+            disabled={loading}
+            required
+          />
+
+          {idProof && (
+            <p>
+              Selected file:{" "}
+              <strong>
+                {idProof.name}
+              </strong>
+            </p>
+          )}
+        </div>
+
+        {/* ==================================================
+            REGISTER
+        =================================================== */}
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={
+            loading ||
+            !locationConfirmed
+          }
           style={{
-            padding: "10px 20px",
-            cursor: loading
-              ? "not-allowed"
-              : "pointer",
+            width: "100%",
+            marginTop: "25px",
+            padding: "14px",
+            border: "none",
+            borderRadius: "8px",
+            background:
+              loading ||
+              !locationConfirmed
+                ? "#9ca3af"
+                : "#111827",
+            color: "#fff",
+            cursor:
+              loading ||
+              !locationConfirmed
+                ? "not-allowed"
+                : "pointer",
+            fontSize: "16px",
+            fontWeight: 600,
           }}
         >
           {loading
-            ? "Submitting..."
-            : "Register"}
+            ? "Submitting Registration..."
+            : "Submit Seller Registration"}
         </button>
       </form>
 
-      <br />
-
-      {/* LOGIN */}
-
-      <p>
+      <p
+        style={{
+          marginTop: "20px",
+          textAlign: "center",
+        }}
+      >
         Already have an account?{" "}
-
         <Link to="/login">
           Login
         </Link>
@@ -654,3 +1017,17 @@ export default function SellerRegister() {
     </div>
   );
 }
+
+// ==========================================================
+// INPUT STYLE
+// ==========================================================
+
+const inputStyle = {
+  width: "100%",
+  boxSizing: "border-box",
+  padding: "12px",
+  marginTop: "12px",
+  border: "1px solid #d1d5db",
+  borderRadius: "8px",
+  fontSize: "15px",
+};

@@ -344,7 +344,7 @@ export default function Dashboard() {
                   <FiChevronDown className="accordion-arrow" />
                 </div>
                 <div className="accordion-content">
-                  <a onClick={() => navigate("/products")}>Inventory Management</a>
+                  <a onClick={() => navigate("/inventory")}>Inventory Management</a>
                   <a onClick={() => navigate("/products?filter=low_stock")}>
                     Low Stock <span className="nav-badge warning">{metrics.inventory.lowStock}</span>
                   </a>
