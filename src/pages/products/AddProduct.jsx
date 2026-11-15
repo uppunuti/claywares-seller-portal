@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import api from "../../api/axios";
 import {
   FiBox,
   FiShoppingBag,
@@ -29,7 +30,7 @@ export default function AddProduct() {
   const [formData, setFormData] = useState({
     name: "",
     description: "",
-    category: "Tableware",
+    category: "cookware",
     subcategory: "Ceramic Mugs",
     capacity: "", // STRING e.g., "500 ml"
     weight: "", // STRING e.g., "350 g"
@@ -42,7 +43,13 @@ export default function AddProduct() {
 
   // Dynamic Variants
   const [variants, setVariants] = useState([
-    { id: Date.now(), name: "Standard", capacity: "350 ml", price: "", stock: "" },
+    {
+      id: Date.now(),
+      name: "Standard",
+      capacity: "350 ml",
+      price: "",
+      stock: "",
+    },
   ]);
 
   // UI State Controls
@@ -54,7 +61,11 @@ export default function AddProduct() {
     savingDraft: false,
     submitting: false,
   });
-  const [toast, setToast] = useState({ show: false, message: "", type: "success" });
+  const [toast, setToast] = useState({
+    show: false,
+    message: "",
+    type: "success",
+  });
   const [errors, setErrors] = useState({});
 
   // Keyboard accessibility for Drawer & Modal
@@ -80,21 +91,31 @@ export default function AddProduct() {
 
   // Image Upload Handling
   const handleImageUpload = (files) => {
-    const validFiles = Array.from(files).filter((file) =>
-      file.type.startsWith("image/")
-    );
+    const selectedFiles = Array.from(files || []);
+    const validFiles = selectedFiles.filter((file) => {
+      const isImage = file.type.startsWith("image/");
+      const isWithinLimit = file.size <= 5 * 1024 * 1024;
+      return isImage && isWithinLimit;
+    });
+
+    if (validFiles.length !== selectedFiles.length) {
+      triggerToast("Only image files up to 5 MB each are allowed.", "error");
+    }
 
     const newImages = validFiles.map((file) => ({
-      id: Math.random().toString(36).substr(2, 9),
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       url: URL.createObjectURL(file),
       file,
       name: file.name,
     }));
 
-    setFormData((prev) => ({
-      ...prev,
-      images: [...prev.images, ...newImages],
-    }));
+    if (newImages.length) {
+      setFormData((prev) => ({
+        ...prev,
+        images: [...prev.images, ...newImages],
+      }));
+      setErrors((prev) => ({ ...prev, images: null }));
+    }
   };
 
   const handleDrop = (e) => {
@@ -106,10 +127,14 @@ export default function AddProduct() {
   };
 
   const removeImage = (id) => {
-    setFormData((prev) => ({
-      ...prev,
-      images: prev.images.filter((img) => img.id !== id),
-    }));
+    setFormData((prev) => {
+      const imageToRemove = prev.images.find((img) => img.id === id);
+      if (imageToRemove?.url) URL.revokeObjectURL(imageToRemove.url);
+      return {
+        ...prev,
+        images: prev.images.filter((img) => img.id !== id),
+      };
+    });
   };
 
   // Variant Handlers
@@ -122,7 +147,7 @@ export default function AddProduct() {
 
   const handleVariantChange = (id, field, value) => {
     setVariants((prev) =>
-      prev.map((v) => (v.id === id ? { ...v, [field]: value } : v))
+      prev.map((v) => (v.id === id ? { ...v, [field]: value } : v)),
     );
   };
 
@@ -132,65 +157,125 @@ export default function AddProduct() {
 
   // Checklist Calculations
   const checklist = [
-    { label: "Basic Information", complete: Boolean(formData.name && formData.description) },
-    { label: "Specifications & Material", complete: Boolean(formData.capacity && formData.weight) },
-    { label: "Pricing & Stock", complete: Boolean(formData.sellingPrice && formData.stock) },
+    {
+      label: "Basic Information",
+      complete: Boolean(formData.name && formData.description),
+    },
+    {
+      label: "Specifications & Material",
+      complete: Boolean(formData.capacity && formData.weight),
+    },
+    {
+      label: "Pricing & Stock",
+      complete: Boolean(formData.sellingPrice && formData.stock),
+    },
     { label: "Product Media", complete: formData.images.length > 0 },
-    { label: "Variants Configured", complete: variants.length > 0 && Boolean(variants[0].name) },
+    {
+      label: "Variants Configured",
+      complete: variants.length > 0 && Boolean(variants[0].name),
+    },
   ];
 
   const completedCount = checklist.filter((item) => item.complete).length;
-  const completionPercentage = Math.round((completedCount / checklist.length) * 100);
+  const completionPercentage = Math.round(
+    (completedCount / checklist.length) * 100,
+  );
 
   // Form Validation
   const validateForm = () => {
     const errs = {};
     if (!formData.name.trim()) errs.name = "Product name is required.";
-    if (!formData.description.trim()) errs.description = "Product description is required.";
-    if (!formData.sellingPrice) errs.sellingPrice = "Selling price is required.";
+    if (!formData.description.trim())
+      errs.description = "Product description is required.";
+    if (!formData.sellingPrice)
+      errs.sellingPrice = "Selling price is required.";
     if (!formData.stock) errs.stock = "Initial stock quantity is required.";
-    if (formData.images.length === 0) errs.images = "At least one product image is required.";
-    
+    if (formData.images.length === 0)
+      errs.images = "At least one product image is required.";
+
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
 
-  // Save Draft Action
-  const handleSaveDraft = async () => {
-    setLoadingState((prev) => ({ ...prev, savingDraft: true }));
-    // Simulate API call
-    setTimeout(() => {
-      setLoadingState((prev) => ({ ...prev, savingDraft: false }));
-      triggerToast("Draft saved successfully!", "success");
-    }, 1000);
+  // Draft API is not present in the current Django URLs. Do not show a false success.
+  const handleSaveDraft = () => {
+    triggerToast(
+      "Draft saving is not connected yet. Submit the product when it is ready.",
+      "error",
+    );
   };
 
   // Final Submit Action
+
   const handleConfirmSubmit = async () => {
     setIsModalOpen(false);
-    setLoadingState((prev) => ({ ...prev, submitting: true }));
+    setLoadingState((prev) => ({
+      ...prev,
+      submitting: true,
+    }));
 
-    // Prepare Payload
-    const payload = new FormData();
-    Object.keys(formData).forEach((key) => {
-      if (key !== "images") {
-        payload.append(key, formData[key]);
+    try {
+      const payload = new FormData();
+
+      // Map frontend fields to Django model/API fields
+      payload.append("productname", formData.name.trim());
+      payload.append("description", formData.description.trim());
+      payload.append("price", formData.sellingPrice);
+      payload.append("category", formData.category);
+      payload.append("capacity", formData.capacity);
+      payload.append("weight", formData.weight);
+
+      if (formData.discountPrice) {
+        payload.append("discount_price", formData.discountPrice);
       }
-    });
-    payload.append("variants", JSON.stringify(variants));
-    formData.images.forEach((img) => payload.append("images", img.file));
 
-    // Simulate Network Request
-    setTimeout(() => {
-      setLoadingState((prev) => ({ ...prev, submitting: false }));
-      triggerToast("Product submitted for ClayWare verification!", "success");
-      setTimeout(() => navigate("/dashboard"), 1800);
-    }, 1500);
-  };
+      // Variants
+      const formattedVariants = variants.map((variant) => ({
+        capacity: variant.capacity || formData.capacity,
+        price: variant.price || formData.sellingPrice,
+      }));
 
-  const triggerToast = (message, type = "success") => {
-    setToast({ show: true, message, type });
-    setTimeout(() => setToast({ show: false, message: "", type: "success" }), 4000);
+      payload.append("variants", JSON.stringify(formattedVariants));
+
+      // Product images
+      formData.images.forEach((img) => {
+        payload.append("images", img.file);
+      });
+
+      // The axios instance adds the JWT Authorization header.
+      // Do not manually set Content-Type; the browser must add the multipart boundary.
+      const response = await api.post("/seller/add-product/", payload);
+
+      triggerToast(
+        response.data.message || "Product added successfully!",
+        "success",
+      );
+
+      setTimeout(() => {
+        navigate("/products");
+      }, 1500);
+    } catch (error) {
+      console.error("Product submission error:", error.response?.data || error);
+
+      const responseData = error.response?.data;
+      const errorMessage =
+        responseData?.error ||
+        responseData?.detail ||
+        responseData?.message ||
+        (typeof responseData === "object"
+          ? Object.entries(responseData)
+              .map(([field, messages]) => `${field}: ${Array.isArray(messages) ? messages.join(", ") : messages}`)
+              .join(" | ")
+          : null) ||
+        "Unable to add product. Please try again.";
+
+      triggerToast(errorMessage, "error");
+    } finally {
+      setLoadingState((prev) => ({
+        ...prev,
+        submitting: false,
+      }));
+    }
   };
 
   return (
@@ -207,7 +292,7 @@ export default function AddProduct() {
           </div>
           <nav className="cw-header-nav">
             <a onClick={() => navigate("/dashboard")}>Dashboard</a>
-            <a onClick={()=> navigate("/products")}>Products</a>
+            <a onClick={() => navigate("/products")}>Products</a>
             <a>Orders</a>
             <a>Inventory</a>
             <a>Analytics</a>
@@ -252,13 +337,19 @@ export default function AddProduct() {
 
           <div className="cw-page-actions">
             <button
+              type="button"
               className="cw-btn cw-btn-secondary"
               onClick={handleSaveDraft}
               disabled={loadingState.savingDraft}
             >
-              {loadingState.savingDraft ? <FiLoader className="cw-spin" /> : "Save Draft"}
+              {loadingState.savingDraft ? (
+                <FiLoader className="cw-spin" />
+              ) : (
+                "Save Draft"
+              )}
             </button>
             <button
+              type="button"
               className="cw-btn cw-btn-ghost"
               onClick={() => navigate("/dashboard")}
             >
@@ -281,8 +372,8 @@ export default function AddProduct() {
                 activeStep === item.step
                   ? "active"
                   : activeStep > item.step
-                  ? "completed"
-                  : ""
+                    ? "completed"
+                    : ""
               }`}
               onClick={() => setActiveStep(item.step)}
             >
@@ -302,7 +393,10 @@ export default function AddProduct() {
             <section className="cw-card-section" id="section-info">
               <div className="cw-section-header">
                 <h2>01. Basic Information</h2>
-                <p>Provide core identification details for your handcrafted product.</p>
+                <p>
+                  Provide core identification details for your handcrafted
+                  product.
+                </p>
               </div>
 
               <div className="cw-form-group">
@@ -317,7 +411,9 @@ export default function AddProduct() {
                   value={formData.name}
                   onChange={handleInputChange}
                 />
-                {errors.name && <span className="cw-error-text">{errors.name}</span>}
+                {errors.name && (
+                  <span className="cw-error-text">{errors.name}</span>
+                )}
               </div>
 
               <div className="cw-form-row">
@@ -329,10 +425,13 @@ export default function AddProduct() {
                     value={formData.category}
                     onChange={handleInputChange}
                   >
-                    <option value="Tableware">Tableware</option>
-                    <option value="Cookware">Cookware</option>
-                    <option value="Home Decor">Home Decor</option>
-                    <option value="Planters">Planters & Garden</option>
+                    <option value="cookware">Cookware</option>
+                    <option value="water_bottles">Water Bottles</option>
+                    <option value="tea_cups">Tea Cups</option>
+                    <option value="water_glasses">Water Glasses</option>
+                    <option value="decors">Home Decor</option>
+                    <option value="kitchen_accessories">Kitchen Accessories</option>
+                    <option value="gifts">Gifts</option>
                   </select>
                 </div>
 
@@ -374,7 +473,10 @@ export default function AddProduct() {
             <section className="cw-card-section" id="section-specs">
               <div className="cw-section-header">
                 <h2>02. Specifications & Dimensions</h2>
-                <p>Exact specs ensure buyers understand product dimensions accurately.</p>
+                <p>
+                  Exact specs ensure buyers understand product dimensions
+                  accurately.
+                </p>
               </div>
 
               <div className="cw-form-row">
@@ -388,7 +490,9 @@ export default function AddProduct() {
                     value={formData.capacity}
                     onChange={handleInputChange}
                   />
-                  <span className="field-hint">Preserved directly as typed (no parsing).</span>
+                  <span className="field-hint">
+                    Preserved directly as typed (no parsing).
+                  </span>
                 </div>
 
                 <div className="cw-form-group">
@@ -401,7 +505,9 @@ export default function AddProduct() {
                     value={formData.weight}
                     onChange={handleInputChange}
                   />
-                  <span className="field-hint">Preserved directly as typed.</span>
+                  <span className="field-hint">
+                    Preserved directly as typed.
+                  </span>
                 </div>
               </div>
             </section>
@@ -494,7 +600,9 @@ export default function AddProduct() {
                   />
                 </label>
               </div>
-              {errors.images && <span className="cw-error-text">{errors.images}</span>}
+              {errors.images && (
+                <span className="cw-error-text">{errors.images}</span>
+              )}
 
               {formData.images.length > 0 && (
                 <div className="cw-image-grid">
@@ -568,7 +676,11 @@ export default function AddProduct() {
                             placeholder="e.g., 500 ml"
                             value={v.capacity}
                             onChange={(e) =>
-                              handleVariantChange(v.id, "capacity", e.target.value)
+                              handleVariantChange(
+                                v.id,
+                                "capacity",
+                                e.target.value,
+                              )
                             }
                           />
                         </td>
@@ -629,7 +741,9 @@ export default function AddProduct() {
               <div className="sidebar-block">
                 <div className="flex-between mb-2">
                   <span className="block-label">COMPLETION</span>
-                  <strong className="completion-num">{completionPercentage}%</strong>
+                  <strong className="completion-num">
+                    {completionPercentage}%
+                  </strong>
                 </div>
                 <div className="cw-progress-track">
                   <div
@@ -673,7 +787,10 @@ export default function AddProduct() {
                     if (validateForm()) {
                       setIsModalOpen(true);
                     } else {
-                      triggerToast("Please complete required fields before submitting.", "error");
+                      triggerToast(
+                        "Please complete required fields before submitting.",
+                        "error",
+                      );
                     }
                   }}
                   disabled={loadingState.submitting}
@@ -699,9 +816,15 @@ export default function AddProduct() {
           <FiEye /> Details
         </button>
         <button
+          type="button"
           className="cw-btn cw-btn-primary"
+          disabled={loadingState.submitting}
           onClick={() => {
-            if (validateForm()) setIsModalOpen(true);
+            if (validateForm()) {
+              setIsModalOpen(true);
+            } else {
+              triggerToast("Please complete all required fields before submitting.", "error");
+            }
           }}
         >
           Submit for Verification
@@ -710,11 +833,11 @@ export default function AddProduct() {
 
       {/* ================= DRAWER: VIEW ENTERED DETAILS ================= */}
       {isDrawerOpen && (
-        <div className="cw-drawer-backdrop" onClick={() => setIsDrawerOpen(false)}>
-          <div
-            className="cw-drawer-panel"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div
+          className="cw-drawer-backdrop"
+          onClick={() => setIsDrawerOpen(false)}
+        >
+          <div className="cw-drawer-panel" onClick={(e) => e.stopPropagation()}>
             <div className="drawer-header">
               <div>
                 <h2>Product Review Drawer</h2>
@@ -739,12 +862,16 @@ export default function AddProduct() {
                   </div>
                   <div>
                     <label>Category</label>
-                    <p>{formData.category} / {formData.subcategory}</p>
+                    <p>
+                      {formData.category} / {formData.subcategory}
+                    </p>
                   </div>
                 </div>
                 <div className="mt-3">
                   <label>Description</label>
-                  <p className="description-text">{formData.description || "—"}</p>
+                  <p className="description-text">
+                    {formData.description || "—"}
+                  </p>
                 </div>
               </div>
 
@@ -771,11 +898,19 @@ export default function AddProduct() {
                 <div className="drawer-data-grid">
                   <div>
                     <label>Selling Price</label>
-                    <p>{formData.sellingPrice ? `₹${formData.sellingPrice}` : "—"}</p>
+                    <p>
+                      {formData.sellingPrice
+                        ? `₹${formData.sellingPrice}`
+                        : "—"}
+                    </p>
                   </div>
                   <div>
                     <label>MRP / Discount</label>
-                    <p>{formData.discountPrice ? `₹${formData.discountPrice}` : "—"}</p>
+                    <p>
+                      {formData.discountPrice
+                        ? `₹${formData.discountPrice}`
+                        : "—"}
+                    </p>
                   </div>
                   <div>
                     <label>Available Stock</label>
@@ -789,7 +924,11 @@ export default function AddProduct() {
                 {formData.images.length > 0 ? (
                   <div className="drawer-image-row">
                     {formData.images.map((img, i) => (
-                      <img key={img.id} src={img.url} alt={`Upload preview ${i}`} />
+                      <img
+                        key={img.id}
+                        src={img.url}
+                        alt={`Upload preview ${i}`}
+                      />
                     ))}
                   </div>
                 ) : (
@@ -802,7 +941,9 @@ export default function AddProduct() {
                 <ul className="drawer-variant-list">
                   {variants.map((v, i) => (
                     <li key={v.id}>
-                      <strong>{v.name || `Variant ${i + 1}`}</strong> — {v.capacity || "N/A"} | Price: ₹{v.price || 0} | Stock: {v.stock || 0}
+                      <strong>{v.name || `Variant ${i + 1}`}</strong> —{" "}
+                      {v.capacity || "N/A"} | Price: ₹{v.price || 0} | Stock:{" "}
+                      {v.stock || 0}
                     </li>
                   ))}
                 </ul>
@@ -823,15 +964,18 @@ export default function AddProduct() {
 
       {/* ================= MODAL: VERIFICATION CONFIRMATION ================= */}
       {isModalOpen && (
-        <div className="cw-modal-backdrop" onClick={() => setIsModalOpen(false)}>
+        <div
+          className="cw-modal-backdrop"
+          onClick={() => setIsModalOpen(false)}
+        >
           <div className="cw-modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-icon-wrap">
               <FiAlertCircle />
             </div>
             <h2>Submit Product for Verification?</h2>
             <p>
-              Your listing will be reviewed by the ClayWare Quality Assurance team.
-              Once verified, it will be listed live on the marketplace.
+              Your listing will be reviewed by the ClayWare Quality Assurance
+              team. Once verified, it will be listed live on the marketplace.
             </p>
 
             <div className="modal-actions">
@@ -842,10 +986,12 @@ export default function AddProduct() {
                 Cancel
               </button>
               <button
+                type="button"
                 className="cw-btn cw-btn-primary"
                 onClick={handleConfirmSubmit}
+                disabled={loadingState.submitting}
               >
-                Confirm & Submit
+                {loadingState.submitting ? "Submitting..." : "Confirm & Submit"}
               </button>
             </div>
           </div>
